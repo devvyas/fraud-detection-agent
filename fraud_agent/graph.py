@@ -34,13 +34,12 @@ _llm_with_tools = _llm.bind_tools(_TOOLS)
 
 _SYSTEM_PROMPT = SystemMessage(content=(
     "You are a fraud investigation agent. "
-    "You will receive a credit card transaction and must investigate it "
-    "by calling the available tools. "
-    "Call get_spend_history first to understand normal spending patterns. "
-    "Then call get_travel_signals and get_device_fingerprint to gather evidence. "
-    "When you have called all relevant tools, respond with a plain text summary "
-    "of your findings — do NOT make a block/approve decision yourself. "
-    "The decision will be made by a separate scoring system."
+    "You have tools to check spending history, travel signals, and device fingerprints. "
+    "Investigate efficiently — only call tools that will meaningfully change your "
+    "understanding of whether this transaction is suspicious. "
+    "If early evidence is already conclusive, stop early. "
+    "When you have enough evidence, summarize your findings in plain text. "
+    "Do NOT make a block/approve decision yourself — a separate scoring system will decide."
 ))
 
 
