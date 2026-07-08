@@ -108,32 +108,74 @@ transaction = TransactionEvent(
 
 ## Sample Output
 
+Each LLM call is preceded by a prompt dump showing every message in the conversation so far. The message list grows by 2 on every loop iteration (one AI message + one tool result), so the LLM always has full context of what it already investigated.
+
 ```
 ============================================================
 FRAUD INVESTIGATION STARTING
 ============================================================
 Transaction: $5000.00 at Tokyo, Japan
 
-[THOUGHT] I am calling get_spend_history to understand typical spending
-patterns and determine if $5000 is unusually large.
+────────────────────────────────────────────────────────────
+[LLM PROMPT] Sending 2 messages to LLM:
+  [0] SYSTEM: You are a fraud investigation agent. You have tools to check
+              spending history, travel signals, and device fingerprints...
+  [1] HUMAN:  Investigate this transaction for fraud:
+              Card ID: 4242 | Amount: $5000.00 | Location: Tokyo, Japan
+────────────────────────────────────────────────────────────
+
+[THOUGHT] I am calling the spending history tool to understand the typical
+transaction amounts for this card and identify any potential red flags.
 
 [ACTION] Calling tool: get_spend_history({'card_id': '4242'})
 [OBSERVATION] get_spend_history: {"min_amount": 8.0, "max_amount": 800.0, "avg_amount": 25.0}
 
-[THOUGHT] The current transaction of $5000 is significantly higher than
-the maximum and average amounts on this card — a potential red flag.
+────────────────────────────────────────────────────────────
+[LLM PROMPT] Sending 4 messages to LLM:
+  [0] SYSTEM: You are a fraud investigation agent...
+  [1] HUMAN:  Investigate this transaction for fraud: Card ID: 4242...
+  [2] AI:     I am calling the spending history tool...
+  [3] TOOL:   {"min_amount": 8.0, "max_amount": 800.0, "avg_amount": 25.0}
+────────────────────────────────────────────────────────────
+
+[THOUGHT] This transaction amount of $5000.00 is significantly higher than
+the maximum and average transaction amounts seen on this card — suspicious.
+I am calling get_travel_signals to check for travel anomalies.
 
 [ACTION] Calling tool: get_travel_signals({'card_id': '4242'})
 [OBSERVATION] get_travel_signals: {"last_swiped_location": "New York", "current_location": "Tokyo", "hours_gap": 3}
 
-[THOUGHT] The card was last used in New York and is now being used in
-Tokyo with only a 3-hour gap, which is suspicious.
+────────────────────────────────────────────────────────────
+[LLM PROMPT] Sending 6 messages to LLM:
+  [0] SYSTEM: You are a fraud investigation agent...
+  [1] HUMAN:  Investigate this transaction for fraud: Card ID: 4242...
+  [2] AI:     I am calling the spending history tool...
+  [3] TOOL:   {"min_amount": 8.0, "max_amount": 800.0, "avg_amount": 25.0}
+  [4] AI:     This transaction amount of $5000.00 is significantly higher...
+  [5] TOOL:   {"last_swiped_location": "New York", "current_location": "Tokyo", "hours_gap": 3}
+────────────────────────────────────────────────────────────
+
+[THOUGHT] Highly suspicious due to large amount and short time gap between
+locations — checking device used for the transaction.
 
 [ACTION] Calling tool: get_device_fingerprint({'card_id': '4242'})
 [OBSERVATION] get_device_fingerprint: {"device_id": "Apple_17", "known_device": false}
 
-[THOUGHT] Highly suspicious: unusually large amount, impossible travel
-NYC→Tokyo in 3 hours, and an unrecognized device.
+────────────────────────────────────────────────────────────
+[LLM PROMPT] Sending 8 messages to LLM:
+  [0] SYSTEM: You are a fraud investigation agent...
+  [1] HUMAN:  Investigate this transaction for fraud: Card ID: 4242...
+  [2] AI:     I am calling the spending history tool...
+  [3] TOOL:   {"min_amount": 8.0, "max_amount": 800.0, "avg_amount": 25.0}
+  [4] AI:     This transaction amount of $5000.00 is significantly higher...
+  [5] TOOL:   {"last_swiped_location": "New York", "current_location": "Tokyo", "hours_gap": 3}
+  [6] AI:     Highly suspicious due to large amount and short time gap...
+  [7] TOOL:   {"device_id": "Apple_17", "known_device": false}
+────────────────────────────────────────────────────────────
+
+[THOUGHT] This transaction is highly suspicious: $5000 exceeds the card's
+historical max of $800, the card moved NYC→Tokyo in 3 hours (physically
+impossible), and the device is unrecognized.
 
 ------------------------------------------------------------
 REACT LOOP COMPLETE — running scoring function
@@ -144,6 +186,18 @@ REACT LOOP COMPLETE — running scoring function
 [REASONING] Amount $5000 is 200x the average $25; Impossible travel: New York → Tokyo in 3h; Transaction from unrecognized device: Apple_17
 ============================================================
 ```
+
+### What Each Section Means
+
+| Output line | Who produces it | What it means |
+|---|---|---|
+| `[LLM PROMPT]` | `graph.py` prints before API call | Full message history being sent to Groq |
+| `[THOUGHT]` | LLM response (`AIMessage.content`) | LLM's reasoning before/after each tool |
+| `[ACTION]` | LLM response (`AIMessage.tool_calls`) | Which tool the LLM decided to call |
+| `[OBSERVATION]` | Tool result (`ToolMessage.content`) | Raw JSON returned by the tool |
+| `[DECISION]` | `scoring.py` — pure Python | Deterministic output of `compute_fraud_score()` |
+
+The LLM is only called **4 times** per investigation (once per `[LLM PROMPT]` block). Tool execution is local — no network call.
 
 ## Running Tests
 

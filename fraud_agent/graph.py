@@ -55,9 +55,17 @@ _SYSTEM_PROMPT = SystemMessage(content=(
 def call_llm(state: State) -> dict:
     """The agent node: sends all current messages to the LLM and gets back
     either a tool call or a final text response."""
-    response = _llm_with_tools.invoke(state["messages"])
-    # Returning a dict with 'messages' triggers the add_messages reducer,
-    # which appends the response to the existing list.
+    messages = state["messages"]
+
+    print(f"\n{'─'*60}")
+    print(f"[LLM PROMPT] Sending {len(messages)} messages to LLM:")
+    for i, msg in enumerate(messages):
+        label = type(msg).__name__.replace("Message", "").upper()
+        content = str(msg.content)[:400] if msg.content else "(no text content)"
+        print(f"  [{i}] {label}: {content}")
+    print(f"{'─'*60}")
+
+    response = _llm_with_tools.invoke(messages)
     return {"messages": [response]}
 
 
