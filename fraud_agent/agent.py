@@ -42,11 +42,12 @@ def investigate(transaction: TransactionEvent) -> FraudDecision:
         # Print what's happening at each step
         msg_type = type(last_msg).__name__
         if msg_type == "AIMessage":
+            # Print reasoning text whenever the LLM produced any
+            if last_msg.content:
+                print(f"\n[THOUGHT] {last_msg.content}")
             if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                 for tc in last_msg.tool_calls:
-                    print(f"\n[ACTION] Calling tool: {tc['name']}({tc['args']})")
-            else:
-                print(f"\n[THOUGHT] LLM summary:\n{last_msg.content}")
+                    print(f"[ACTION] Calling tool: {tc['name']}({tc['args']})")
         elif msg_type == "ToolMessage":
             print(f"[OBSERVATION] {last_msg.name}: {last_msg.content[:200]}")
 

@@ -30,11 +30,17 @@ _llm = ChatGroq(model="llama-3.3-70b-versatile")
 
 # bind_tools tells the LLM which tools exist and what their schemas are.
 # The LLM will emit a ToolCall message (not text) when it wants to use one.
-_llm_with_tools = _llm.bind_tools(_TOOLS)
+# parallel_tool_calls=False forces the LLM to call one tool at a time,
+# wait for the observation, then decide whether to call the next tool.
+# This enables true ReAct: each observation can change what happens next.
+_llm_with_tools = _llm.bind_tools(_TOOLS, parallel_tool_calls=False)
 
 _SYSTEM_PROMPT = SystemMessage(content=(
     "You are a fraud investigation agent. "
     "You have tools to check spending history, travel signals, and device fingerprints. "
+    "Before each tool call, explain in one sentence WHY you are calling that tool "
+    "and what you expect to learn from it. "
+    "After receiving a result, explain in one sentence what it tells you. "
     "Investigate efficiently — only call tools that will meaningfully change your "
     "understanding of whether this transaction is suspicious. "
     "If early evidence is already conclusive, stop early. "
