@@ -233,6 +233,117 @@ agent node (LLM) ──→ should_continue ──→ tool node ──┐
 
 `State` is a list of messages that grows with each step (`add_messages` reducer). The LLM sees the full accumulated history on every call — that's how it "remembers" what it already investigated.
 
+## Deployment
+
+### Option 1: Docker (local)
+
+The agent is exposed as an HTTP server via FastAPI. Build and run it as a container:
+
+```bash
+# Build the image
+docker build -t fraud-agent:latest .
+
+# Run — inject your API key at runtime, never bake it into the image
+docker run -p 8080:8080 -e GROQ_API_KEY=your_key_here fraud-agent:latest
+```
+
+Test the running container:
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Investigate a transaction
+curl -X POST http://localhost:8080/investigate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "card_id": "4242",
+    "amount": 5000.0,
+    "location": "Tokyo, Japan",
+    "transaction_time": "2026-07-09"
+  }'
+```
+
+Response:
+```json
+{
+  "decision": "block",
+  "confidence": 1.0,
+  "reasoning": "Amount $5000 is 200x the average $25; Impossible travel: New York → Tokyo in 3h; Transaction from unrecognized device: Apple_17"
+}
+```
+
+**Why the Dockerfile is structured this way:**
+- `COPY pyproject.toml` before `COPY fraud_agent/` — Docker caches the pip install layer. A code-only change skips reinstalling dependencies, making rebuilds fast.
+- `GROQ_API_KEY` is never written into the image — it's injected at `docker run` time via `-e`.
+
+---
+
+### Option 2: Kubernetes (local with Minikube)
+
+```bash
+# 1. Start Minikube
+minikube start
+
+# 2. Point Docker to Minikube's registry so the image is available inside the cluster
+eval $(minikube docker-env)
+docker build -t fraud-agent:latest .
+
+# 3. Create the API key secret — never commit real keys to k8s/secret.yaml
+kubectl create secret generic fraud-agent-secrets \
+  --from-literal=GROQ_API_KEY=your_key_here
+
+# 4. Deploy
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+
+# 5. Get the service URL and test
+minikube service fraud-agent-service --url
+# → http://192.168.x.x:XXXXX
+
+curl -X POST http://192.168.x.x:XXXXX/investigate \
+  -H "Content-Type: application/json" \
+  -d '{"card_id": "4242", "amount": 5000.0, "location": "Tokyo", "transaction_time": "2026-07-09"}'
+```
+
+**What each manifest does:**
+
+| File | Purpose |
+|---|---|
+| `k8s/secret.yaml` | Template showing Secret structure — create the real one with `kubectl create secret` |
+| `k8s/deployment.yaml` | Runs 2 pod replicas; injects `GROQ_API_KEY` from the Secret into each pod |
+| `k8s/service.yaml` | Exposes the deployment on port 80, routes to container port 8080 |
+
+**Key concepts in the deployment:**
+- `readinessProbe` on `/health` — Kubernetes only sends traffic to a pod once this returns 200. Prevents requests hitting a pod that hasn't finished starting.
+- `replicas: 2` — if one pod crashes, the other keeps serving requests.
+- `GROQ_API_KEY` flows: `kubectl secret` → K8s Secret → env var in pod → picked up by `langchain-groq` automatically.
+
+---
+
+### Option 3: Cloud (GKE / EKS / AKS)
+
+```bash
+# 1. Tag and push the image to your cloud registry
+docker tag fraud-agent:latest gcr.io/YOUR_PROJECT/fraud-agent:v1
+docker push gcr.io/YOUR_PROJECT/fraud-agent:v1
+
+# 2. Update the image field in k8s/deployment.yaml
+#    image: gcr.io/YOUR_PROJECT/fraud-agent:v1
+
+# 3. Create the secret on your cloud cluster
+kubectl create secret generic fraud-agent-secrets \
+  --from-literal=GROQ_API_KEY=your_key_here
+
+# 4. Apply all manifests
+kubectl apply -f k8s/
+
+# 5. Get the external IP (takes ~60s for cloud LoadBalancer to provision)
+kubectl get service fraud-agent-service
+```
+
+---
+
 ## Known Limitation
 
 New cards (`card_id="9999"`) with no spend history are currently approved despite having an unknown device. The scoring function skips the amount spike check when `avg_amount=0`. A production system should treat missing spend history as a risk signal and auto-challenge. This is left as an extension exercise.
