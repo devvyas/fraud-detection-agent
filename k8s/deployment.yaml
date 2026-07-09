@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-agent
+  labels:
+    app: fraud-agent
+spec:
+  replicas: 2                      # run 2 pods for availability
+  selector:
+    matchLabels:
+      app: fraud-agent
+  template:
+    metadata:
+      labels:
+        app: fraud-agent
+    spec:
+      containers:
+        - name: fraud-agent
+          image: fraud-agent:latest  # replace with your registry path e.g. gcr.io/project/fraud-agent:v1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fraud-agent-secrets   # references k8s/secret.yaml
+                  key: GROQ_API_KEY
+          readinessProbe:             # K8s only sends traffic once /health returns 200
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

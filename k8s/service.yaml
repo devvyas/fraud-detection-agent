@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-agent-service
+spec:
+  selector:
+    app: fraud-agent         # routes traffic to pods with this label
+  ports:
+    - protocol: TCP
+      port: 80               # external port callers use
+      targetPort: 8080       # port the container listens on
+  type: LoadBalancer         # use NodePort instead for local Minikube
